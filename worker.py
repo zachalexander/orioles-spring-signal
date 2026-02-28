@@ -11,38 +11,72 @@ os.makedirs(DATA_DIR, exist_ok=True)
 SPRING_2026_START = "2026-02-15"
 SPRING_2025_START = "2025-02-15"
 REG_2025_START = "2025-03-20"
-REG_2025_END   = "2025-10-01"
+REG_2025_END = "2025-10-01"
 
 TODAY = datetime.date.today().strftime("%Y-%m-%d")
 
-def filter_orioles(df):
-    return df[(df["home_team"] == "BAL") | (df["away_team"] == "BAL")]
 
+# ----------------------------
+# Utility: Safe Orioles Filter
+# ----------------------------
+def filter_orioles(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    possible_cols = [
+        "home_team",
+        "away_team",
+        "batting_team",
+        "fielding_team",
+        "player_team"
+    ]
+
+    for col in possible_cols:
+        if col in df.columns:
+            return df[df[col] == "BAL"]
+
+    # If no recognizable team column exists,
+    # return empty (safer than crashing)
+    return pd.DataFrame()
+
+
+# ----------------------------
+# Hitter Metrics
+# ----------------------------
 def hitter_metrics(df):
+    if df.empty:
+        return pd.DataFrame()
+
+    required_cols = ["player_name", "events", "launch_speed", "description"]
+
+    for col in required_cols:
+        if col not in df.columns:
+            return pd.DataFrame()
+
     grouped = df.groupby("player_name").agg(
         PA=("events", "count"),
         EV=("launch_speed", "mean"),
         BarrelRate=("launch_speed", lambda x: np.mean(x > 98)),
         WhiffRate=("description", lambda x: np.mean(x == "swinging_strike")),
     )
+
     return grouped.dropna()
 
-def pitcher_metrics(df):
-    grouped = df.groupby("pitcher").agg(
-        Velo=("release_speed", "mean"),
-        KRate=("events", lambda x: np.mean(x == "strikeout")),
-    )
-    return grouped.dropna()
 
-def compute_bias(spring, regular):
-    bias = spring - regular
-    return bias
+# ----------------------------
+# Confidence Shrinkage
+# ----------------------------
+def confidence_score(delta, sample_size):
+    if sample_size <= 0:
+        return 0.0
 
-def confidence_score(delta, sample):
-    weight = min(sample / 50, 1)
-    score = delta * weight
-    return score
+    weight = min(sample_size / 50.0, 1.0)
+    return float(delta * weight)
 
+
+# ----------------------------
+# Main Worker
+# ----------------------------
 def run():
 
     print("Pulling 2025 Regular...")
@@ -60,18 +94,27 @@ def run():
 
     results = []
 
+    if spr26_hit.empty or reg_hit.empty:
+        print("No usable data found. Saving empty signal file.")
+        with open(f"{DATA_DIR}/signals_2026.json", "w") as f:
+            json.dump([], f)
+        return
+
     for player in spr26_hit.index:
+
         if player not in reg_hit.index:
             continue
 
         raw_delta = spr26_hit.loc[player]["EV"] - reg_hit.loc[player]["EV"]
 
-        bias = 0
+        bias = 0.0
         if player in spr25_hit.index:
             bias = spr25_hit.loc[player]["EV"] - reg_hit.loc[player]["EV"]
 
         adjusted = raw_delta - bias
-        conf = confidence_score(adjusted, spr26_hit.loc[player]["PA"])
+
+        sample_size = spr26_hit.loc[player]["PA"]
+        conf = confidence_score(adjusted, sample_size)
 
         results.append({
             "player": player,
@@ -81,10 +124,13 @@ def run():
             "confidence_index": float(conf)
         })
 
+    results = sorted(results, key=lambda x: x["confidence_index"], reverse=True)
+
     with open(f"{DATA_DIR}/signals_2026.json", "w") as f:
         json.dump(results, f)
 
-    print("Signals saved.")
+    print("Signals saved successfully.")
+
 
 if __name__ == "__main__":
     run()
