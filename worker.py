@@ -16,77 +16,70 @@ REG_2025_END = "2025-10-01"
 TODAY = datetime.date.today().strftime("%Y-%m-%d")
 
 
-# ----------------------------
-# Utility: Safe Orioles Filter
-# ----------------------------
-def filter_orioles(df):
-    if df is None or df.empty:
+def safe_statcast(start, end):
+    try:
+        df = statcast(start_dt=start, end_dt=end)
+        if df is None or df.empty:
+            print(f"No data returned for {start} to {end}")
+            return pd.DataFrame()
+        return df
+    except Exception as e:
+        print(f"Statcast error for {start} to {end}: {e}")
         return pd.DataFrame()
 
-    possible_cols = [
-        "home_team",
-        "away_team",
-        "batting_team",
-        "fielding_team",
-        "player_team"
-    ]
 
-    for col in possible_cols:
-        if col in df.columns:
-            return df[df[col] == "BAL"]
+def filter_orioles(df):
+    if df.empty:
+        return df
 
-    # If no recognizable team column exists,
-    # return empty (safer than crashing)
+    team_cols = [col for col in df.columns if "team" in col.lower()]
+    for col in team_cols:
+        try:
+            filtered = df[df[col] == "BAL"]
+            if not filtered.empty:
+                return filtered
+        except:
+            continue
+
+    print("No team column found; returning empty dataframe.")
     return pd.DataFrame()
 
 
-# ----------------------------
-# Hitter Metrics
-# ----------------------------
 def hitter_metrics(df):
     if df.empty:
         return pd.DataFrame()
 
-    required_cols = ["player_name", "events", "launch_speed", "description"]
-
-    for col in required_cols:
+    required = ["player_name", "events", "launch_speed"]
+    for col in required:
         if col not in df.columns:
+            print(f"Missing column: {col}")
             return pd.DataFrame()
 
     grouped = df.groupby("player_name").agg(
         PA=("events", "count"),
         EV=("launch_speed", "mean"),
-        BarrelRate=("launch_speed", lambda x: np.mean(x > 98)),
-        WhiffRate=("description", lambda x: np.mean(x == "swinging_strike")),
     )
 
     return grouped.dropna()
 
 
-# ----------------------------
-# Confidence Shrinkage
-# ----------------------------
-def confidence_score(delta, sample_size):
-    if sample_size <= 0:
+def confidence_score(delta, sample):
+    if sample <= 0:
         return 0.0
-
-    weight = min(sample_size / 50.0, 1.0)
+    weight = min(sample / 50.0, 1.0)
     return float(delta * weight)
 
 
-# ----------------------------
-# Main Worker
-# ----------------------------
 def run():
 
     print("Pulling 2025 Regular...")
-    reg_2025 = filter_orioles(statcast(REG_2025_START, REG_2025_END))
+    reg_2025 = filter_orioles(safe_statcast(REG_2025_START, REG_2025_END))
 
     print("Pulling 2025 Spring...")
-    spring_2025 = filter_orioles(statcast(SPRING_2025_START, REG_2025_START))
+    spring_2025 = filter_orioles(safe_statcast(SPRING_2025_START, REG_2025_START))
 
     print("Pulling 2026 Spring...")
-    spring_2026 = filter_orioles(statcast(SPRING_2026_START, TODAY))
+    spring_2026 = filter_orioles(safe_statcast(SPRING_2026_START, TODAY))
 
     reg_hit = hitter_metrics(reg_2025)
     spr25_hit = hitter_metrics(spring_2025)
@@ -95,7 +88,7 @@ def run():
     results = []
 
     if spr26_hit.empty or reg_hit.empty:
-        print("No usable data found. Saving empty signal file.")
+        print("Insufficient data. Saving empty file.")
         with open(f"{DATA_DIR}/signals_2026.json", "w") as f:
             json.dump([], f)
         return
@@ -112,7 +105,6 @@ def run():
             bias = spr25_hit.loc[player]["EV"] - reg_hit.loc[player]["EV"]
 
         adjusted = raw_delta - bias
-
         sample_size = spr26_hit.loc[player]["PA"]
         conf = confidence_score(adjusted, sample_size)
 
