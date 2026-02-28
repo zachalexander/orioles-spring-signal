@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: orioles-spring-web
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn server:app --host 0.0.0.0 --port 10000"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
+
+  - type: worker
+    name: orioles-spring-worker
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python worker.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
