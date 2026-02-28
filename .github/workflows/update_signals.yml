@@ -3,7 +3,7 @@ name: Update Orioles Spring Signals
 on:
   schedule:
     - cron: "0 */4 * * *"   # every 4 hours
-  workflow_dispatch:        # allows manual run
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
@@ -29,10 +29,15 @@ jobs:
         run: |
           python worker.py
 
-      - name: Commit updated JSON
+      - name: Commit updated JSON if changed
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add data/signals_2026.json
-          git commit -m "Auto update spring signals"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Auto update spring signals"
+            git push
+          fi
