@@ -46,6 +46,7 @@ def safe_statcast(start, end):
     try:
         df = statcast(start_dt=start, end_dt=end)
         if df is None or df.empty:
+            print(f"No data returned for {start} to {end}")
             return pd.DataFrame()
         return df
     except Exception as e:
@@ -54,21 +55,20 @@ def safe_statcast(start, end):
 
 
 # ----------------------------
-# Filter by Orioles Player IDs
+# Always Return Two DataFrames
 # ----------------------------
 def filter_by_roster(df, roster_ids):
-    if df.empty:
-        return df
 
-    cols = df.columns
+    if df is None or df.empty:
+        return pd.DataFrame(), pd.DataFrame()
 
     hitter_df = pd.DataFrame()
     pitcher_df = pd.DataFrame()
 
-    if "batter" in cols:
+    if "batter" in df.columns:
         hitter_df = df[df["batter"].isin(roster_ids)]
 
-    if "pitcher" in cols:
+    if "pitcher" in df.columns:
         pitcher_df = df[df["pitcher"].isin(roster_ids)]
 
     return hitter_df, pitcher_df
@@ -188,8 +188,8 @@ def run():
         results.append({
             "player": name_map.get(pid, str(pid)),
             "type": "pitcher",
-            "raw_delta_Velo": float(raw_delta),
-            "adjusted_delta_Velo": float(adjusted),
+            "raw_delta": float(raw_delta),
+            "adjusted_delta": float(adjusted),
             "confidence_index": float(conf)
         })
 
